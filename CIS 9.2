@@ -31,6 +31,34 @@ function enableDoH {
     Restart-Computer
 }
 
+# Function to set up Cloudflare's DoH on Ethernet 3 NIC
+function setupQuadDoH {
+    # a. Change the DNS server of Ethernet 3 to 1.1.1.2
+    Set-DnsClientServerAddress -InterfaceAlias 'Ethernet 3' -ServerAddresses '1.1.1.2'
+
+    # b. Register the DoH template
+    Add-DnsClientDohServerAddress 1.1.1.2 `
+        https://security.cloudflare-dns.com/dns-query `
+        -AutoUpgrade $True
+
+    # c. Enable DoH on Ethernet 3 using the registry
+
+    # i. Set $guid to the InterfaceGuid of Ethernet 3
+    $ethernet3 = Get-NetAdapter | Where-Object { $_.Name -eq 'Ethernet 3' }
+    $guid = $ethernet3.InterfaceGuid
+
+    # ii. Create a registry path
+    $regPath = "HKLM:\System\CurrentControlSet\Services\Dnscache\InterfaceSpecificParameters\$guid\DohInterfaceSettings\Doh\1.1.1.2"
+
+    # If the path doesn't exist, create it
+    if (-not (Test-Path $regPath)) {
+        New-Item -Path $regPath -Force
+    }
+
+    # iii. Enable DoH by setting the property
+    Set-ItemProperty -Path $regPath -Name 'DohFlags' -Value 1
+}
+
 # Check the first argument of the command line
 $argument = $args[0]
 
@@ -39,14 +67,16 @@ switch ($argument) {
         # Call testDNSBlock() function
         testDNSBlock
     }
-
     "DoH-enable" {
         # Call enableDoH() function
         enableDoH
     }
-
+    "DoH-setupQuad" {
+        # Call setupQuadDoH() function
+        setupQuadDoH
+    }
     default {
         # Output an error message if the first argument is unknown
-        Write-Error "Unknown argument: $argument. Please use 'DoH-test' or 'DoH-enable'."
+        Write-Error "Unknown argument: $argument. Please use 'DoH-test', 'DoH-enable', or 'DoH-setupQuad'."
     }
 }
