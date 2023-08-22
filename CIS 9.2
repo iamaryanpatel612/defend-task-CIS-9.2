@@ -1,93 +1,98 @@
-# defend.ps1
-
-# Function to test if DNS filtering is active on the system
+# Function to test if DNS blocking is active
 function testDNSBlock {
-    # Retrieve and display the original DNS servers of Ethernet 3 NIC
-    $dnsServers = Get-DnsClientServerAddress -InterfaceAlias 'Ethernet 3' -AddressFamily IPv4
-    $originalDNS = $dnsServers.ServerAddresses
-    Write-Output "Original DNS Server(s) of Ethernet 3 NIC: $originalDNS"
+    $dnsServer = (Get-DnsClientServerAddress -InterfaceAlias "Ethernet 3").ServerAddresses
+    Write-Output "Current DNS server for Ethernet 3 is: $dnsServer"
 
-    # Resolve the IP address for a known malware domain and check DNS filtering
-    try {
-        $hostEntry = [System.Net.Dns]::GetHostAddresses('malware.testcategory.com')
-        $ipAddress = $hostEntry.IPAddressToString
-        
-        if ($ipAddress -ne '0.0.0.0') {
-            Write-Output "The host is not using DNS filtering."
-        } else {
-            Write-Output "The host is using DNS filtering."
-        }
-    } catch {
-        Write-Error "Error resolving the domain. It might be blocked or not exist."
+    $malwareIP = [System.Net.Dns]::GetHostAddresses("malware.testcategory.com").IPAddressToString
+    if ($malwareIP -ne "0.0.0.0") {
+        Write-Output "The host is not using DNS filtering."
+    } else {
+        Write-Output "DNS filtering is active and working."
     }
 }
 
-# Function to enable DNS over HTTPS (DoH) for Win11
+# Function to enable DNS over HTTPS (DoH)
 function enableDoH {
-    # Set EnableAutoDoH property in the specified registry key to 2
-    Set-ItemProperty -Path "HKLM:\SYSTEM\CurrentControlSet\Services\Dnscache\Parameters" -Name "EnableAutoDoH" -Value 2
-
-    # Reboot the computer
-    Restart-Computer
+    Set-ItemProperty -Path "HKLM:SYSTEM\CurrentControlSet\Services\Dnscache\Parameters" -Name "EnableAutoDoH" -Value 2
+    Write-Output "Enabled DoH. A system reboot is required for the changes to take effect."
 }
 
-# Function to set up Cloudflare's DoH on Ethernet 3 NIC
+# Function to setup Cloudflare's DoH on Ethernet 3 NIC
 function setupQuadDoH {
-    # a. Change the DNS server of Ethernet 3 to 1.1.1.2
+    # a. Change DNS server of Ethernet 3 to 1.1.1.2
     Set-DnsClientServerAddress -InterfaceAlias 'Ethernet 3' -ServerAddresses '1.1.1.2'
-
+    
     # b. Register the DoH template
-    Add-DnsClientDohServerAddress 1.1.1.2 `
-        https://security.cloudflare-dns.com/dns-query `
-        -AutoUpgrade $True
-
+    Add-DnsClientDohServerAddress 1.1.1.2 https://security.cloudflare-dns.com/dns-query -AutoUpgrade $True
+    
     # c. Enable DoH on Ethernet 3 using the registry
-
-    # i. Set $guid to the InterfaceGuid of Ethernet 3
-    $ethernet3 = Get-NetAdapter | Where-Object { $_.Name -eq 'Ethernet 3' }
-    $guid = $ethernet3.InterfaceGuid
-
-    # ii. Create a registry path
-    $regPath = "HKLM:\System\CurrentControlSet\Services\Dnscache\InterfaceSpecificParameters\$guid\DohInterfaceSettings\Doh\1.1.1.2"
-
-    # If the path doesn't exist, create it
-    if (-not (Test-Path $regPath)) {
-        New-Item -Path $regPath -Force
-    }
-
-    # iii. Enable DoH by setting the property
-    Set-ItemProperty -Path $regPath -Name 'DohFlags' -Value 1
+    $guid = (Get-NetAdapter -InterfaceAlias "Ethernet 3").InterfaceGuid
+    $regPath = 'HKLM:\System\CurrentControlSet\Services\Dnscache\InterfaceSpecificParameters\' + $guid + '\DohInterfaceSettings\Doh\1.1.1.2'
+    New-Item -Path $regPath -Force
+    Set-ItemProperty -Path $regPath -Name "DohFlags" -Value 1
+    Write-Output "Configured Cloudflare's DoH on Ethernet 3 NIC."
 }
 
-# Function to reset DoH settings
+# Function to reset DoH settings to default
 function resetDoH {
-    # a. Reset the DNS server value of Ethernet 3 back to 10.0.2.3
     Set-DnsClientServerAddress -InterfaceAlias 'Ethernet 3' -ServerAddresses '10.0.2.3'
+    Write-Output "Reset DNS settings of Ethernet 3 to 10.0.2.3."
 }
 
-# Check the first argument of the command line
-$argument = $args[0]
+# Function to block outbound HTTP traffic (port 80)
+function blockHTTP {
+    if (-not (Get-NetFirewallRule -Name "BlockOutboundHTTP" -ErrorAction SilentlyContinue)) {
+        New-NetFirewallRule -Name "BlockOutboundHTTP" -Direction Outbound -Protocol TCP -LocalPort 80 -Action Block -DisplayName "Block Outbound HTTP"
+        Write-Output "Outbound HTTP traffic on port 80 has been blocked."
+    } else {
+        Write-Output "Outbound HTTP traffic on port 80 is already blocked."
+    }
+}
 
-switch ($argument) {
+# Function to test if the TCP port 80 (HTTP) traffic is blocked
+function testHTTPBlock {
+    $rule = Get-NetFirewallRule -Name "BlockOutboundHTTP" -ErrorAction SilentlyContinue
+    if ($rule) {
+        Write-Output "HTTP traffic on port 80 is blocked."
+    } else {
+        Write-Output "HTTP traffic on port 80 is NOT blocked."
+    }
+}
+
+# Function to disable the HTTP blocking rule
+function disableHTTPBlock {
+    if (Get-NetFirewallRule -Name "BlockOutboundHTTP" -ErrorAction SilentlyContinue) {
+        Remove-NetFirewallRule -Name "BlockOutboundHTTP"
+        Write-Output "Outbound HTTP traffic on port 80 has been unblocked."
+    } else {
+        Write-Output "No rule found blocking outbound HTTP traffic on port 80."
+    }
+}
+
+# Command argument parsing
+switch ($args[0]) {
     "DoH-test" {
-        # Call testDNSBlock() function
         testDNSBlock
     }
     "DoH-enable" {
-        # Call enableDoH() function
         enableDoH
     }
     "DoH-setupQuad" {
-        # Call setupQuadDoH() function
         setupQuadDoH
     }
     "DoH-reset" {
-        # Call resetDoH() function
         resetDoH
     }
+    "HTTP-block" {
+        blockHTTP
+    }
+    "HTTP-testBlock" {
+        testHTTPBlock
+    }
+    "HTTP-disableBlock" {
+        disableHTTPBlock
+    }
     default {
-        # Output an error message if the first argument is unknown
-        Write-Error "Unknown argument: $argument. Please use 'DoH-test', 'DoH-enable', 'DoH-setupQuad', or 'DoH-reset'."
+        Write-Output "Unknown argument. Please use a valid function name as the argument."
     }
 }
-
