@@ -1,0 +1,25 @@
+# defend.ps1
+
+function testDNSBlock {
+    # a. Output the DNS server of your Ethernet 3 NIC
+    $dnsServers = Get-DnsClientServerAddress -InterfaceAlias 'Ethernet 3' -AddressFamily IPv4
+    $originalDNS = $dnsServers.ServerAddresses
+    Write-Output "Original DNS Server(s) of Ethernet 3 NIC: $originalDNS"
+
+    # b. Determine the IP address of malware.testcategory.com
+    try {
+        $hostEntry = [System.Net.Dns]::GetHostAddresses('malware.testcategory.com')
+        $ipAddress = $hostEntry.IPAddressToString
+        
+        if ($ipAddress -ne '0.0.0.0') {
+            Write-Output "The host is not using DNS filtering."
+        } else {
+            Write-Output "The host is using DNS filtering."
+        }
+    } catch {
+        Write-Error "Error resolving the domain. It might be blocked or not exist."
+    }
+}
+
+# Call the function to test DNS block
+testDNSBlock
