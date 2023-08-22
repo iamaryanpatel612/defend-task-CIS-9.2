@@ -59,6 +59,12 @@ function setupQuadDoH {
     Set-ItemProperty -Path $regPath -Name 'DohFlags' -Value 1
 }
 
+# Function to reset DoH settings
+function resetDoH {
+    # a. Reset the DNS server value of Ethernet 3 back to 10.0.2.3
+    Set-DnsClientServerAddress -InterfaceAlias 'Ethernet 3' -ServerAddresses '10.0.2.3'
+}
+
 # Check the first argument of the command line
 $argument = $args[0]
 
@@ -75,8 +81,13 @@ switch ($argument) {
         # Call setupQuadDoH() function
         setupQuadDoH
     }
+    "DoH-reset" {
+        # Call resetDoH() function
+        resetDoH
+    }
     default {
         # Output an error message if the first argument is unknown
-        Write-Error "Unknown argument: $argument. Please use 'DoH-test', 'DoH-enable', or 'DoH-setupQuad'."
+        Write-Error "Unknown argument: $argument. Please use 'DoH-test', 'DoH-enable', 'DoH-setupQuad', or 'DoH-reset'."
     }
 }
+
